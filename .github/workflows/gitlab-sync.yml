@@ -2,6 +2,13 @@ name: GitlabSync
 
 on:
   workflow_call:
+    secrets:
+      GITLAB_REPO_TOKEN:
+        required: true
+      GITLAB_REPO_URL:
+        required: true
+      GITLAB_REPO_USERNAME:
+        required: true
 
 jobs:
   sync:
