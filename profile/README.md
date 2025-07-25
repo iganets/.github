@@ -1,1 +1,1 @@
-# Physics-informed isogeometric analysis network
+# IGAnets - Isogeometric analysis network
