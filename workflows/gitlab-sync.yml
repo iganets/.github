@@ -1,6 +1,7 @@
 name: GitlabSync
 
-on: [push, delete]
+on:
+  workflow_call:
 
 jobs:
   sync:
