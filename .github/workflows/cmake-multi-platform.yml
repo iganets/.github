@@ -15,6 +15,7 @@ jobs:
 
       # Set up a matrix to run the following configurations:
       matrix:
+        build_type: [Release]
         include:
           - os: ubuntu-latest
             c_compiler: gcc
