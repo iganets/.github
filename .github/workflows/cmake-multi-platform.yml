@@ -4,6 +4,10 @@ name: CMake on multiple platforms
 
 on:
   workflow_call:
+    inputs:
+      IGANET_OPTIONAL:
+        required: false
+        type: string
 
 jobs:
   build:
@@ -15,7 +19,9 @@ jobs:
 
       # Set up a matrix to run the following configurations:
       matrix:
+        os: [macos-latest, ubuntu-latest]
         build_type: [Release]
+        c_compiler: [gcc, clang]
         include:
           - os: ubuntu-latest
             c_compiler: gcc
@@ -26,6 +32,9 @@ jobs:
           - os: macos-latest
             c_compiler: clang
             cpp_compiler: clang++
+        exclude:
+          - os: macos-latest
+            c_compiler: gcc
 
     steps:
     - name: Checkout Repository
@@ -73,8 +82,8 @@ jobs:
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
         -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -DIGANET_BUILD_UNITTESTS=ON
         -DTorch_DIR=$HOME/libtorch/share/cmake/Torch
+        -DIGANET_OPTIONAL=${{ inputs.IGANET_OPTIONAL }}
         -S ${{ github.workspace }}
 
     - name: Configure CMake - Linux / Clang
@@ -86,8 +95,8 @@ jobs:
         -DCMAKE_CXX_COMPILER=clang++-20
         -DCMAKE_C_COMPILER=clang-20
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -DIGANET_BUILD_UNITTESTS=ON
         -DTorch_DIR=$HOME/libtorch/share/cmake/Torch
+        -DIGANET_OPTIONAL=${{ inputs.IGANET_OPTIONAL }}
         -DIGANET_WITH_OPENMP=OFF
         -S ${{ github.workspace }}
 
@@ -100,9 +109,9 @@ jobs:
         -DCMAKE_CXX_COMPILER=${{ matrix.cpp_compiler }}
         -DCMAKE_C_COMPILER=${{ matrix.c_compiler }}
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -DIGANET_BUILD_UNITTESTS=ON
         -DTorch_DIR=$HOME/libtorch/share/cmake/Torch
         -DIGANET_WITH_OPENMP=OFF
+        -DIGANET_OPTIONAL=${{ inputs.IGANET_OPTIONAL }}
         -S ${{ github.workspace }}
 
     - name: Configure CMake - Windows / Cl
@@ -114,7 +123,7 @@ jobs:
         -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
         -DIGANET_BUILD_UNITTESTS=OFF
         -DTorch_DIR=C:\libtorch\share\cmake\Torch
-        -DIGANET_WITH_OPENMP=OFF
+        -DIGANET_OPTIONAL=${{ inputs.IGANET_OPTIONAL }}
         -S ${{ github.workspace }}
 
     - name: Build
