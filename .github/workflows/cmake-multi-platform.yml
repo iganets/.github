@@ -50,8 +50,8 @@ jobs:
     - name: Install PyTorch - Linux
       if: matrix.os == 'ubuntu-latest'
       run: >
-        wget https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.9.0%2Bcpu.zip -O libtorch.zip &&
-        unzip libtorch.zip -d $HOME &&
+        wget -q https://download.pytorch.org/libtorch/cpu/libtorch-shared-with-deps-2.9.0%2Bcpu.zip -O libtorch.zip &&
+        unzip -q libtorch.zip -d $HOME &&
         rm -f libtorch.zip
 
     - name: Install PyTorch - MacOS
@@ -69,7 +69,7 @@ jobs:
     - name: Install Clang - Linux
       if: matrix.os == 'ubuntu-latest'
       run: |
-        wget https://apt.llvm.org/llvm.sh
+        wget -q https://apt.llvm.org/llvm.sh
         chmod +x ./llvm.sh
         sudo ./llvm.sh 20
 
