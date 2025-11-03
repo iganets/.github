@@ -1,6 +1,6 @@
 # IGAnets - Isogeometric analysis network
 
-IGAnets is a novel approach to combine the concept of deep operator learning with the mathematical framework of isogeometric analysis.
+IGAnets is a novel approach to combine the concept of deep operator learning with the mathematical framework of isogeometric analysis. For an overview of the different components visit https://iganets.github.io/
 
 ## Main repositories
 
