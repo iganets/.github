@@ -49,7 +49,7 @@ jobs:
           -DIGANET_BUILD_DOCS=ON
           -DIGANET_BUILD_PCH=OFF
           -DTorch_DIR=$HOME/libtorch/share/cmake/Torch
-          -DIGANET_OPTIONAL=${{ inputs.IGANET_OPTIONAL }}
+          -DIGANET_OPTIONAL="${{ inputs.IGANET_OPTIONAL }}"
           -S ${{ github.workspace }}
 
       - name: Generate Documentation
