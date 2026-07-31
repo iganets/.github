@@ -84,7 +84,7 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.cache_scope }}
+    name: ${{ matrix.flavor }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -93,22 +93,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - dockerfile_input: CPU_DOCKERFILE
-            tag_input: CPU_TAG
-            cache_scope: cpu
-            target: ""
-          - dockerfile_input: CPU_DOCKERFILE
-            tag_input: CPU_DEV_TAG
-            cache_scope: cpu-dev
-            target: dev
-          - dockerfile_input: CUDA_DOCKERFILE
-            tag_input: CUDA_TAG
-            cache_scope: cuda
-            target: ""
-          - dockerfile_input: CUDA_DOCKERFILE
-            tag_input: CUDA_DEV_TAG
-            cache_scope: cuda-dev
-            target: dev
+          - flavor: cpu
+            dockerfile_input: CPU_DOCKERFILE
+            runtime_tag_input: CPU_TAG
+            dev_tag_input: CPU_DEV_TAG
+          - flavor: cuda
+            dockerfile_input: CUDA_DOCKERFILE
+            runtime_tag_input: CUDA_TAG
+            dev_tag_input: CUDA_DEV_TAG
 
     steps:
       - name: Check out repository
@@ -124,11 +116,13 @@ jobs:
           CPU_DEV_TAG: ${{ inputs.CPU_DEV_TAG }}
           CUDA_TAG: ${{ inputs.CUDA_TAG }}
           CUDA_DEV_TAG: ${{ inputs.CUDA_DEV_TAG }}
-          matrix_dockerfile: ${{ matrix.dockerfile_input }}
-          matrix_tag: ${{ matrix.tag_input }}
+          MATRIX_DOCKERFILE: ${{ matrix.dockerfile_input }}
+          MATRIX_RUNTIME_TAG: ${{ matrix.runtime_tag_input }}
+          MATRIX_DEV_TAG: ${{ matrix.dev_tag_input }}
         run: |
-          echo "dockerfile=${!matrix_dockerfile}" >> "$GITHUB_OUTPUT"
-          echo "tag=${!matrix_tag}" >> "$GITHUB_OUTPUT"
+          echo "dockerfile=${!MATRIX_DOCKERFILE}" >> "$GITHUB_OUTPUT"
+          echo "runtime_tag=${!MATRIX_RUNTIME_TAG}" >> "$GITHUB_OUTPUT"
+          echo "dev_tag=${!MATRIX_DEV_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -143,15 +137,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Build and push
+      - name: Build and push development image
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.BUILD_CONTEXT }}
           file: ${{ steps.config.outputs.dockerfile }}
           platforms: linux/amd64,linux/arm64
-          target: ${{ matrix.target }}
+          target: dev
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}:${{ steps.config.outputs.tag }}
+          tags: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}:${{ steps.config.outputs.dev_tag }}
           build-args: |
             IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
             IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
@@ -162,5 +156,26 @@ jobs:
             IGANET_WITH_MATPLOT=${{ inputs.IGANET_WITH_MATPLOT }}
             IGANET_WITH_MPI=${{ inputs.IGANET_WITH_MPI }}
             IGANET_WITH_OPENMP=${{ inputs.IGANET_WITH_OPENMP }}
-          cache-from: type=gha,scope=${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
+          cache-from: type=gha,scope=${{ matrix.flavor }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.flavor }}
+
+      - name: Build and push production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.BUILD_CONTEXT }}
+          file: ${{ steps.config.outputs.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}:${{ steps.config.outputs.runtime_tag }}
+          build-args: |
+            IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
+            IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
+            IGANET_BUILD_DOCS=${{ inputs.IGANET_BUILD_DOCS }}
+            IGANET_BUILD_PCH=${{ inputs.IGANET_BUILD_PCH }}
+            IGANET_OPTIONAL=${{ inputs.IGANET_OPTIONAL }}
+            IGANET_WITH_GISMO=${{ inputs.IGANET_WITH_GISMO }}
+            IGANET_WITH_MATPLOT=${{ inputs.IGANET_WITH_MATPLOT }}
+            IGANET_WITH_MPI=${{ inputs.IGANET_WITH_MPI }}
+            IGANET_WITH_OPENMP=${{ inputs.IGANET_WITH_OPENMP }}
+          cache-from: type=gha,scope=${{ matrix.flavor }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.flavor }}
