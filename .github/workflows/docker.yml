@@ -1,0 +1,166 @@
+name: Build and publish IGANets Docker images
+
+on:
+  workflow_call:
+    inputs:
+      IGANET_BUILD_TYPE:
+        description: CMake build type
+        required: false
+        type: string
+        default: Release
+      IGANET_BUILD_CPUONLY:
+        description: Build without CUDA support
+        required: false
+        type: string
+        default: "OFF"
+      IGANET_BUILD_DOCS:
+        description: Build documentation
+        required: false
+        type: string
+        default: "OFF"
+      IGANET_BUILD_PCH:
+        description: Build precompiled headers
+        required: false
+        type: string
+        default: "ON"
+      IGANET_OPTIONAL:
+        description: Semicolon-separated optional modules
+        required: false
+        type: string
+        default: ""
+      IGANET_WITH_GISMO:
+        description: Build with G+Smo
+        required: false
+        type: string
+        default: "OFF"
+      IGANET_WITH_MATPLOT:
+        description: Build with Matplot++
+        required: false
+        type: string
+        default: "OFF"
+      IGANET_WITH_MPI:
+        description: Build with MPI
+        required: false
+        type: string
+        default: "OFF"
+      IGANET_WITH_OPENMP:
+        description: Build with OpenMP
+        required: false
+        type: string
+        default: "ON"
+      IMAGE_NAME:
+        description: GHCR package name, without registry or owner
+        required: false
+        type: string
+        default: iganets
+      CPU_TAG:
+        required: false
+        type: string
+        default: cpu
+      CPU_DEV_TAG:
+        required: false
+        type: string
+        default: cpu-dev
+      CUDA_TAG:
+        required: false
+        type: string
+        default: cuda
+      CUDA_DEV_TAG:
+        required: false
+        type: string
+        default: cuda-dev
+      CPU_DOCKERFILE:
+        required: false
+        type: string
+        default: Dockerfile.cpu
+      CUDA_DOCKERFILE:
+        required: false
+        type: string
+        default: Dockerfile.cuda
+      BUILD_CONTEXT:
+        required: false
+        type: string
+        default: .
+
+jobs:
+  build:
+    name: ${{ matrix.cache_scope }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile_input: CPU_DOCKERFILE
+            tag_input: CPU_TAG
+            cache_scope: cpu
+            target: ""
+          - dockerfile_input: CPU_DOCKERFILE
+            tag_input: CPU_DEV_TAG
+            cache_scope: cpu-dev
+            target: dev
+          - dockerfile_input: CUDA_DOCKERFILE
+            tag_input: CUDA_TAG
+            cache_scope: cuda
+            target: ""
+          - dockerfile_input: CUDA_DOCKERFILE
+            tag_input: CUDA_DEV_TAG
+            cache_scope: cuda-dev
+            target: dev
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve matrix inputs
+        id: config
+        shell: bash
+        env:
+          CPU_DOCKERFILE: ${{ inputs.CPU_DOCKERFILE }}
+          CUDA_DOCKERFILE: ${{ inputs.CUDA_DOCKERFILE }}
+          CPU_TAG: ${{ inputs.CPU_TAG }}
+          CPU_DEV_TAG: ${{ inputs.CPU_DEV_TAG }}
+          CUDA_TAG: ${{ inputs.CUDA_TAG }}
+          CUDA_DEV_TAG: ${{ inputs.CUDA_DEV_TAG }}
+          matrix_dockerfile: ${{ matrix.dockerfile_input }}
+          matrix_tag: ${{ matrix.tag_input }}
+        run: |
+          echo "dockerfile=${!matrix_dockerfile}" >> "$GITHUB_OUTPUT"
+          echo "tag=${!matrix_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.BUILD_CONTEXT }}
+          file: ${{ steps.config.outputs.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          target: ${{ matrix.target }}
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}:${{ steps.config.outputs.tag }}
+          build-args: |
+            IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
+            IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
+            IGANET_BUILD_DOCS=${{ inputs.IGANET_BUILD_DOCS }}
+            IGANET_BUILD_PCH=${{ inputs.IGANET_BUILD_PCH }}
+            IGANET_OPTIONAL=${{ inputs.IGANET_OPTIONAL }}
+            IGANET_WITH_GISMO=${{ inputs.IGANET_WITH_GISMO }}
+            IGANET_WITH_MATPLOT=${{ inputs.IGANET_WITH_MATPLOT }}
+            IGANET_WITH_MPI=${{ inputs.IGANET_WITH_MPI }}
+            IGANET_WITH_OPENMP=${{ inputs.IGANET_WITH_OPENMP }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
