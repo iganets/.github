@@ -84,8 +84,8 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.flavor }}
-    runs-on: ubuntu-latest
+    name: ${{ matrix.flavor }} / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -94,13 +94,25 @@ jobs:
       matrix:
         include:
           - flavor: cpu
+            arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
             dockerfile_input: CPU_DOCKERFILE
-            runtime_tag_input: CPU_TAG
-            dev_tag_input: CPU_DEV_TAG
+          - flavor: cpu
+            arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            dockerfile_input: CPU_DOCKERFILE
           - flavor: cuda
+            arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
             dockerfile_input: CUDA_DOCKERFILE
-            runtime_tag_input: CUDA_TAG
-            dev_tag_input: CUDA_DEV_TAG
+          - flavor: cuda
+            arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            dockerfile_input: CUDA_DOCKERFILE
 
     steps:
       - name: Check out repository
@@ -112,20 +124,9 @@ jobs:
         env:
           CPU_DOCKERFILE: ${{ inputs.CPU_DOCKERFILE }}
           CUDA_DOCKERFILE: ${{ inputs.CUDA_DOCKERFILE }}
-          CPU_TAG: ${{ inputs.CPU_TAG }}
-          CPU_DEV_TAG: ${{ inputs.CPU_DEV_TAG }}
-          CUDA_TAG: ${{ inputs.CUDA_TAG }}
-          CUDA_DEV_TAG: ${{ inputs.CUDA_DEV_TAG }}
           MATRIX_DOCKERFILE: ${{ matrix.dockerfile_input }}
-          MATRIX_RUNTIME_TAG: ${{ matrix.runtime_tag_input }}
-          MATRIX_DEV_TAG: ${{ matrix.dev_tag_input }}
         run: |
           echo "dockerfile=${!MATRIX_DOCKERFILE}" >> "$GITHUB_OUTPUT"
-          echo "runtime_tag=${!MATRIX_RUNTIME_TAG}" >> "$GITHUB_OUTPUT"
-          echo "dev_tag=${!MATRIX_DEV_TAG}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -138,14 +139,14 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and push development image
+        id: build-dev
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.BUILD_CONTEXT }}
           file: ${{ steps.config.outputs.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           target: dev
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}:${{ steps.config.outputs.dev_tag }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
             IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
@@ -156,17 +157,32 @@ jobs:
             IGANET_WITH_MATPLOT=${{ inputs.IGANET_WITH_MATPLOT }}
             IGANET_WITH_MPI=${{ inputs.IGANET_WITH_MPI }}
             IGANET_WITH_OPENMP=${{ inputs.IGANET_WITH_OPENMP }}
-          cache-from: type=gha,scope=${{ matrix.flavor }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.flavor }}
+          cache-from: type=gha,scope=${{ matrix.flavor }}-${{ matrix.arch }}-dev
+          cache-to: type=gha,mode=max,scope=${{ matrix.flavor }}-${{ matrix.arch }}-dev
+
+      - name: Export development image digest
+        env:
+          DIGEST: ${{ steps.build-dev.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests-dev
+          touch "/tmp/digests-dev/${DIGEST#sha256:}"
+
+      - name: Upload development image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.flavor }}-dev-${{ matrix.arch }}
+          path: /tmp/digests-dev/*
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Build and push production image
+        id: build-runtime
         uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.BUILD_CONTEXT }}
           file: ${{ steps.config.outputs.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}:${{ steps.config.outputs.runtime_tag }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
             IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
@@ -177,5 +193,84 @@ jobs:
             IGANET_WITH_MATPLOT=${{ inputs.IGANET_WITH_MATPLOT }}
             IGANET_WITH_MPI=${{ inputs.IGANET_WITH_MPI }}
             IGANET_WITH_OPENMP=${{ inputs.IGANET_WITH_OPENMP }}
-          cache-from: type=gha,scope=${{ matrix.flavor }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.flavor }}
+          cache-from: |
+            type=gha,scope=${{ matrix.flavor }}-${{ matrix.arch }}-dev
+            type=gha,scope=${{ matrix.flavor }}-${{ matrix.arch }}-runtime
+          cache-to: type=gha,mode=max,scope=${{ matrix.flavor }}-${{ matrix.arch }}-runtime
+
+      - name: Export production image digest
+        env:
+          DIGEST: ${{ steps.build-runtime.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests-runtime
+          touch "/tmp/digests-runtime/${DIGEST#sha256:}"
+
+      - name: Upload production image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.flavor }}-runtime-${{ matrix.arch }}
+          path: /tmp/digests-runtime/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Publish ${{ matrix.flavor }} ${{ matrix.kind }} manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: cpu
+            kind: dev
+            tag_input: CPU_DEV_TAG
+          - flavor: cpu
+            kind: runtime
+            tag_input: CPU_TAG
+          - flavor: cuda
+            kind: dev
+            tag_input: CUDA_DEV_TAG
+          - flavor: cuda
+            kind: runtime
+            tag_input: CUDA_TAG
+
+    steps:
+      - name: Download image digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-${{ matrix.flavor }}-${{ matrix.kind }}-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Create and push multi-platform manifest
+        shell: bash
+        env:
+          CPU_TAG: ${{ inputs.CPU_TAG }}
+          CPU_DEV_TAG: ${{ inputs.CPU_DEV_TAG }}
+          CUDA_TAG: ${{ inputs.CUDA_TAG }}
+          CUDA_DEV_TAG: ${{ inputs.CUDA_DEV_TAG }}
+          MATRIX_TAG: ${{ matrix.tag_input }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}
+        run: |
+          tag=${!MATRIX_TAG}
+          sources=()
+          for digest_file in /tmp/digests/*; do
+            sources+=("${IMAGE}@sha256:${digest_file##*/}")
+          done
+          docker buildx imagetools create \
+            --tag "${IMAGE}:${tag}" \
+            "${sources[@]}"
+          docker buildx imagetools inspect "${IMAGE}:${tag}"
