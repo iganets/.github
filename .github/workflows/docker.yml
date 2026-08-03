@@ -49,23 +49,32 @@ on:
         type: string
         default: "ON"
       IMAGE_NAME:
-        description: GHCR package name, without registry or owner
+        description: GHCR package base name, without registry or owner
         required: false
         type: string
         default: iganets
-      CPU_TAG:
+      IMAGE_TAG:
+        description: Image tag; a Git tag on the triggering commit takes precedence
+        required: false
+        type: string
+        default: latest
+      CPU_LABEL:
+        description: Label appended to IMAGE_NAME for the CPU runtime image
         required: false
         type: string
         default: cpu
-      CPU_DEV_TAG:
+      CPU_DEV_LABEL:
+        description: Label appended to IMAGE_NAME for the CPU development image
         required: false
         type: string
         default: cpu-dev
-      CUDA_TAG:
+      CUDA_LABEL:
+        description: Label appended to IMAGE_NAME for the CUDA runtime image
         required: false
         type: string
         default: cuda
-      CUDA_DEV_TAG:
+      CUDA_DEV_LABEL:
+        description: Label appended to IMAGE_NAME for the CUDA development image
         required: false
         type: string
         default: cuda-dev
@@ -124,9 +133,13 @@ jobs:
         env:
           CPU_DOCKERFILE: ${{ inputs.CPU_DOCKERFILE }}
           CUDA_DOCKERFILE: ${{ inputs.CUDA_DOCKERFILE }}
+          CPU_DEV_LABEL: ${{ inputs.CPU_DEV_LABEL }}
+          CUDA_DEV_LABEL: ${{ inputs.CUDA_DEV_LABEL }}
           MATRIX_DOCKERFILE: ${{ matrix.dockerfile_input }}
+          MATRIX_DEV_LABEL: ${{ matrix.flavor == 'cpu' && 'CPU_DEV_LABEL' || 'CUDA_DEV_LABEL' }}
         run: |
           echo "dockerfile=${!MATRIX_DOCKERFILE}" >> "$GITHUB_OUTPUT"
+          echo "dev-image=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${!MATRIX_DEV_LABEL}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -146,7 +159,7 @@ jobs:
           file: ${{ steps.config.outputs.dockerfile }}
           platforms: ${{ matrix.platform }}
           target: dev
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.config.outputs.dev-image }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
             IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
@@ -182,7 +195,7 @@ jobs:
           context: ${{ inputs.BUILD_CONTEXT }}
           file: ${{ steps.config.outputs.dockerfile }}
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${{ matrix.flavor == 'cpu' && inputs.CPU_LABEL || inputs.CUDA_LABEL }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
             IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
@@ -226,18 +239,49 @@ jobs:
         include:
           - flavor: cpu
             kind: dev
-            tag_input: CPU_DEV_TAG
+            label_input: CPU_DEV_LABEL
           - flavor: cpu
             kind: runtime
-            tag_input: CPU_TAG
+            label_input: CPU_LABEL
           - flavor: cuda
             kind: dev
-            tag_input: CUDA_DEV_TAG
+            label_input: CUDA_DEV_LABEL
           - flavor: cuda
             kind: runtime
-            tag_input: CUDA_TAG
+            label_input: CUDA_LABEL
 
     steps:
+      - name: Resolve publication settings
+        id: publish
+        shell: bash
+        env:
+          CPU_LABEL: ${{ inputs.CPU_LABEL }}
+          CPU_DEV_LABEL: ${{ inputs.CPU_DEV_LABEL }}
+          CUDA_LABEL: ${{ inputs.CUDA_LABEL }}
+          CUDA_DEV_LABEL: ${{ inputs.CUDA_DEV_LABEL }}
+          MATRIX_LABEL: ${{ matrix.label_input }}
+          REQUESTED_TAG: ${{ inputs.IMAGE_TAG }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          label=${!MATRIX_LABEL}
+          tag=$REQUESTED_TAG
+          if [[ $REF_TYPE == tag ]]; then
+            tag=$REF_NAME
+          fi
+          if [[ ! $label =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo "Invalid image label: $label" >&2
+            exit 1
+          fi
+          if [[ ! $tag =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid image tag: $tag" >&2
+            exit 1
+          fi
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${label}" >> "$GITHUB_OUTPUT"
+          echo "package=${{ inputs.IMAGE_NAME }}-${label}" >> "$GITHUB_OUTPUT"
+
       - name: Download image digests
         uses: actions/download-artifact@v4
         with:
@@ -258,19 +302,38 @@ jobs:
       - name: Create and push multi-platform manifest
         shell: bash
         env:
-          CPU_TAG: ${{ inputs.CPU_TAG }}
-          CPU_DEV_TAG: ${{ inputs.CPU_DEV_TAG }}
-          CUDA_TAG: ${{ inputs.CUDA_TAG }}
-          CUDA_DEV_TAG: ${{ inputs.CUDA_DEV_TAG }}
-          MATRIX_TAG: ${{ matrix.tag_input }}
-          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}
+          IMAGE: ${{ steps.publish.outputs.image }}
+          TAG: ${{ steps.publish.outputs.tag }}
         run: |
-          tag=${!MATRIX_TAG}
           sources=()
           for digest_file in /tmp/digests/*; do
             sources+=("${IMAGE}@sha256:${digest_file##*/}")
           done
           docker buildx imagetools create \
-            --tag "${IMAGE}:${tag}" \
+            --tag "${IMAGE}:${TAG}" \
+            --tag "${IMAGE}:${TAG}-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             "${sources[@]}"
-          docker buildx imagetools inspect "${IMAGE}:${tag}"
+          docker buildx imagetools inspect "${IMAGE}:${TAG}"
+
+      - name: Keep the three latest builds for this image and tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          OWNER_TYPE: ${{ github.event.repository.owner.type }}
+          PACKAGE: ${{ steps.publish.outputs.package }}
+          TAG: ${{ steps.publish.outputs.tag }}
+        run: |
+          if [[ $OWNER_TYPE == Organization ]]; then
+            endpoint="/orgs/${OWNER}/packages/container/${PACKAGE}/versions"
+          else
+            endpoint="/users/${OWNER}/packages/container/${PACKAGE}/versions"
+          fi
+          mapfile -t old_version_ids < <(
+            gh api --paginate --slurp "$endpoint?per_page=100" |
+              jq -r --arg prefix "${TAG}-build-" \
+                'add | map(select(any(.metadata.container.tags[]; startswith($prefix)))) | sort_by(.created_at) | reverse | .[3:] | .[].id'
+          )
+          for version_id in "${old_version_ids[@]}"; do
+            gh api --method DELETE "${endpoint}/${version_id}"
+          done
