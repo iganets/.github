@@ -126,26 +126,36 @@ jobs:
             platform: linux/amd64
             runner: ubuntu-24.04
             dockerfile_input: CPU_DOCKERFILE
+            label_input: CPU_LABEL
+            dev_label_input: CPU_DEV_LABEL
           - flavor: cpu
             arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
             dockerfile_input: CPU_DOCKERFILE
+            label_input: CPU_LABEL
+            dev_label_input: CPU_DEV_LABEL
           - flavor: cuda
             arch: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
             dockerfile_input: CUDA_DOCKERFILE
+            label_input: CUDA_LABEL
+            dev_label_input: CUDA_DEV_LABEL
           - flavor: cuda
             arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
             dockerfile_input: CUDA_DOCKERFILE
+            label_input: CUDA_LABEL
+            dev_label_input: CUDA_DEV_LABEL
           - flavor: rocm
             arch: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
             dockerfile_input: ROCM_DOCKERFILE
+            label_input: ROCM_LABEL
+            dev_label_input: ROCM_DEV_LABEL
 
     steps:
       - name: Check out repository
@@ -161,10 +171,15 @@ jobs:
           CPU_DEV_LABEL: ${{ inputs.CPU_DEV_LABEL }}
           CUDA_DEV_LABEL: ${{ inputs.CUDA_DEV_LABEL }}
           ROCM_DEV_LABEL: ${{ inputs.ROCM_DEV_LABEL }}
+          CPU_LABEL: ${{ inputs.CPU_LABEL }}
+          CUDA_LABEL: ${{ inputs.CUDA_LABEL }}
+          ROCM_LABEL: ${{ inputs.ROCM_LABEL }}
           MATRIX_DOCKERFILE: ${{ matrix.dockerfile_input }}
-          MATRIX_DEV_LABEL: ${{ matrix.flavor == 'cpu' && 'CPU_DEV_LABEL' || 'CUDA_DEV_LABEL' || 'ROCM_DEV_LABEL' }}
+          MATRIX_LABEL: ${{ matrix.label_input }}
+          MATRIX_DEV_LABEL: ${{ matrix.dev_label_input }}
         run: |
           echo "dockerfile=${!MATRIX_DOCKERFILE}" >> "$GITHUB_OUTPUT"
+          echo "runtime-image=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${!MATRIX_LABEL}" >> "$GITHUB_OUTPUT"
           echo "dev-image=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${!MATRIX_DEV_LABEL}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -222,7 +237,7 @@ jobs:
           context: ${{ inputs.BUILD_CONTEXT }}
           file: ${{ steps.config.outputs.dockerfile }}
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${{ matrix.flavor == 'cpu' && inputs.CPU_LABEL || inputs.CUDA_LABEL || inputs.ROCM_LABEL }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.config.outputs.runtime-image }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
             IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
