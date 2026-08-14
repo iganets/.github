@@ -9,7 +9,7 @@ on:
         type: string
         default: Release
       IGANET_BUILD_CPUONLY:
-        description: Build without CUDA support
+        description: Build without accelerator support
         required: false
         type: string
         default: "OFF"
@@ -78,6 +78,16 @@ on:
         required: false
         type: string
         default: cuda-dev
+      ROCM_LABEL:
+        description: Label appended to IMAGE_NAME for the ROCM runtime image
+        required: false
+        type: string
+        default: rocm
+      ROCM_DEV_LABEL:
+        description: Label appended to IMAGE_NAME for the ROCM development image
+        required: false
+        type: string
+        default: rocm-dev
       CPU_DOCKERFILE:
         required: false
         type: string
@@ -86,6 +96,10 @@ on:
         required: false
         type: string
         default: Dockerfile.cuda
+      ROCM_DOCKERFILE:
+        required: false
+        type: string
+        default: Dockerfile.rocm
       BUILD_CONTEXT:
         required: false
         type: string
@@ -127,6 +141,11 @@ jobs:
             platform: linux/arm64
             runner: ubuntu-24.04-arm
             dockerfile_input: CUDA_DOCKERFILE
+          - flavor: rocm
+            arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+            dockerfile_input: ROCM_DOCKERFILE
 
     steps:
       - name: Check out repository
@@ -138,10 +157,12 @@ jobs:
         env:
           CPU_DOCKERFILE: ${{ inputs.CPU_DOCKERFILE }}
           CUDA_DOCKERFILE: ${{ inputs.CUDA_DOCKERFILE }}
+          ROCM_DOCKERFILE: ${{ inputs.ROCM_DOCKERFILE }}
           CPU_DEV_LABEL: ${{ inputs.CPU_DEV_LABEL }}
           CUDA_DEV_LABEL: ${{ inputs.CUDA_DEV_LABEL }}
+          ROCM_DEV_LABEL: ${{ inputs.ROCM_DEV_LABEL }}
           MATRIX_DOCKERFILE: ${{ matrix.dockerfile_input }}
-          MATRIX_DEV_LABEL: ${{ matrix.flavor == 'cpu' && 'CPU_DEV_LABEL' || 'CUDA_DEV_LABEL' }}
+          MATRIX_DEV_LABEL: ${{ matrix.flavor == 'cpu' && 'CPU_DEV_LABEL' || 'CUDA_DEV_LABEL' || 'ROCM_DEV_LABEL' }}
         run: |
           echo "dockerfile=${!MATRIX_DOCKERFILE}" >> "$GITHUB_OUTPUT"
           echo "dev-image=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${!MATRIX_DEV_LABEL}" >> "$GITHUB_OUTPUT"
@@ -201,7 +222,7 @@ jobs:
           context: ${{ inputs.BUILD_CONTEXT }}
           file: ${{ steps.config.outputs.dockerfile }}
           platforms: ${{ matrix.platform }}
-          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${{ matrix.flavor == 'cpu' && inputs.CPU_LABEL || inputs.CUDA_LABEL }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ inputs.IMAGE_NAME }}-${{ matrix.flavor == 'cpu' && inputs.CPU_LABEL || inputs.CUDA_LABEL || inputs.ROCM_LABEL }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             IGANET_BUILD_TYPE=${{ inputs.IGANET_BUILD_TYPE }}
             IGANET_BUILD_CPUONLY=${{ inputs.IGANET_BUILD_CPUONLY }}
@@ -256,6 +277,12 @@ jobs:
           - flavor: cuda
             kind: runtime
             label_input: CUDA_LABEL
+          - flavor: rocm
+            kind: dev
+            label_input: ROCM_DEV_LABEL
+          - flavor: rocm
+            kind: runtime
+            label_input: ROCM_LABEL
 
     steps:
       - name: Resolve publication settings
@@ -266,6 +293,8 @@ jobs:
           CPU_DEV_LABEL: ${{ inputs.CPU_DEV_LABEL }}
           CUDA_LABEL: ${{ inputs.CUDA_LABEL }}
           CUDA_DEV_LABEL: ${{ inputs.CUDA_DEV_LABEL }}
+          ROCM_LABEL: ${{ inputs.ROCM_LABEL }}
+          ROCM_DEV_LABEL: ${{ inputs.ROCM_DEV_LABEL }}
           MATRIX_LABEL: ${{ matrix.label_input }}
           REQUESTED_TAG: ${{ inputs.IMAGE_TAG }}
           REF_NAME: ${{ github.ref_name }}
