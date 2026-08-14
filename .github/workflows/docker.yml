@@ -90,6 +90,11 @@ on:
         required: false
         type: string
         default: .
+      NJOBS:
+        description: Number of parallel build jobs
+        required: false
+        type: string
+        default: 1
 
 jobs:
   build:
@@ -170,6 +175,7 @@ jobs:
             IGANET_WITH_MATPLOT=${{ inputs.IGANET_WITH_MATPLOT }}
             IGANET_WITH_MPI=${{ inputs.IGANET_WITH_MPI }}
             IGANET_WITH_OPENMP=${{ inputs.IGANET_WITH_OPENMP }}
+            NJOBS=${{ inputs.NJOBS }}
           cache-from: type=gha,scope=${{ matrix.flavor }}-${{ matrix.arch }}-dev
           cache-to: type=gha,mode=max,scope=${{ matrix.flavor }}-${{ matrix.arch }}-dev
 
@@ -206,6 +212,7 @@ jobs:
             IGANET_WITH_MATPLOT=${{ inputs.IGANET_WITH_MATPLOT }}
             IGANET_WITH_MPI=${{ inputs.IGANET_WITH_MPI }}
             IGANET_WITH_OPENMP=${{ inputs.IGANET_WITH_OPENMP }}
+            NJOBS=${{ inputs.NJOBS }}
           cache-from: |
             type=gha,scope=${{ matrix.flavor }}-${{ matrix.arch }}-dev
             type=gha,scope=${{ matrix.flavor }}-${{ matrix.arch }}-runtime
